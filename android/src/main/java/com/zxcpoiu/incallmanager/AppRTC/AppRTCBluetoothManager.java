@@ -35,7 +35,7 @@ import com.zxcpoiu.incallmanager.InCallManagerModule;
  * AppRTC demo.
  */
 public class AppRTCBluetoothManager {
-  private static final String TAG = "AppRTCBluetoothManager";
+  private static final String TAG = "InCallManagerBluetoothManager";
 
   // Timeout interval for starting or stopping audio to a Bluetooth SCO device.
   private static final int BLUETOOTH_SCO_TIMEOUT_MS = 4000;
@@ -325,10 +325,13 @@ public class AppRTCBluetoothManager {
     // connection to be available when the method returns but instead register to receive the
     // intent ACTION_SCO_AUDIO_STATE_UPDATED and wait for the state to be SCO_AUDIO_STATE_CONNECTED.
     bluetoothState = State.SCO_CONNECTING;
+    audioManager.setMode(0);
     audioManager.startBluetoothSco();
     audioManager.setBluetoothScoOn(true);
+    audioManager.setMode(AudioManager.MODE_IN_CALL);
     scoConnectionAttempts++;
     startTimer();
+
     Log.d(TAG, "startScoAudio done: BT state=" + bluetoothState + ", "
             + "SCO is on: " + isScoOn());
     return true;
@@ -344,10 +347,67 @@ public class AppRTCBluetoothManager {
     cancelTimer();
     audioManager.stopBluetoothSco();
     audioManager.setBluetoothScoOn(false);
+    audioManager.setMode(AudioManager.MODE_NORMAL);
+
     bluetoothState = State.SCO_DISCONNECTING;
     Log.d(TAG, "stopScoAudio done: BT state=" + bluetoothState + ", "
             + "SCO is on: " + isScoOn());
   }
+
+    public void setBluetoothHeadsetState(final boolean state) {
+        Log.d(TAG, "Headset START: " + state);
+
+        BluetoothAdapter.getDefaultAdapter().getProfileProxy(apprtcContext, new BluetoothProfile.ServiceListener() {
+            public void onServiceDisconnected(int i) {}
+
+            public void onServiceConnected(int i, BluetoothProfile bluetoothProfile) {
+                Log.d(TAG, "Headset: onServiceConnected, i = " + i + ", profile = " + (bluetoothProfile == null));
+
+                boolean z;
+                if (i == 1) {
+                    try {
+                        if (state) {
+                            z = AppRTCBluetoothManager.connectBluetoothHeadset((BluetoothHeadset) bluetoothProfile);
+                        } else {
+                            z = AppRTCBluetoothManager.disconnectBluetoothHeadset((BluetoothHeadset) bluetoothProfile);
+                        }
+
+                        Log.d(TAG, "Headset DONE: " + z);
+                    } catch (Throwable th) {
+                        th.printStackTrace();
+                        return;
+                    }
+                }
+
+                BluetoothAdapter.getDefaultAdapter().closeProfileProxy(i, bluetoothProfile);
+            }
+        }, 1);
+    }
+
+    public static boolean connectBluetoothHeadset(BluetoothHeadset bluetoothHeadset) {
+        try {
+            BluetoothHeadset.class.getMethod("connectAudio").invoke(bluetoothHeadset);
+            return true;
+        } catch (Exception e) {
+            Log.d(TAG, "Headset connect Exception: " + e);
+            return false;
+        }
+    }
+
+    public static boolean disconnectBluetoothHeadset(BluetoothHeadset bluetoothHeadset) {
+        try {
+            /*BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            Set<BluetoothDevice> devices = adapter.getBondedDevices();
+            for (BluetoothDevice device : devices) {
+                return bluetoothHeadset.disconnectHeadset(device);
+            }*/
+
+            return ((Boolean) BluetoothHeadset.class.getMethod("connectHeadset", new Class[0]).invoke(bluetoothHeadset, new Object[0])).booleanValue();
+        } catch (Exception e) {
+            Log.d(TAG, "Headset disconnect Exception: " + e);
+            return false;
+        }
+    }
 
   /**
    * Use the BluetoothHeadset proxy object (controls the Bluetooth Headset
@@ -464,6 +524,7 @@ public class AppRTCBluetoothManager {
       if (bluetoothHeadset.isAudioConnected(bluetoothDevice)) {
         Log.d(TAG, "SCO connected with " + bluetoothDevice.getName());
         scoConnected = true;
+        setBluetoothHeadsetState(true);
       } else {
         Log.d(TAG, "SCO is not connected with " + bluetoothDevice.getName());
       }

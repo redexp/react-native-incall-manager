@@ -25,10 +25,10 @@ class InCallManager {
 
     start(setup) {
         setup = (setup === undefined) ? {} : setup;
-        let auto = (setup.auto === false) ? false : true;
+        let auto = typeof setup.auto === 'boolean' ? setup.auto : true;
         let media = (setup.media === 'video') ? 'video' : 'audio';
         let ringback = (!!setup.ringback) ? (typeof setup.ringback === 'string') ? setup.ringback : "" : "";
-        _InCallManager.start(media, auto, ringback);
+        return _InCallManager.start(media, auto, ringback);
     }
 
     stop(setup) {
@@ -56,7 +56,7 @@ class InCallManager {
 
     setFlashOn(enable, brightness) {
         if (Platform.OS === 'ios') {
-            enable = (enable === true) ? true : false;
+            enable = enable === true;
             brightness = (typeof brightness === 'number') ? brightness : 0;
             _InCallManager.setFlashOn(enable, brightness);
         } else {
@@ -66,12 +66,12 @@ class InCallManager {
 
 
     setKeepScreenOn(enable) {
-        enable = (enable === true) ? true : false;
+        enable = enable === true;
         _InCallManager.setKeepScreenOn(enable);
     }
 
     setSpeakerphoneOn(enable) {
-        enable = (enable === true) ? true : false;
+        enable = enable === true;
         _InCallManager.setSpeakerphoneOn(enable);
     }
 
@@ -80,14 +80,18 @@ class InCallManager {
         _InCallManager.setForceSpeakerphoneOn(flag);
     }
 
+    getAudioDevices() {
+        return _InCallManager.getAudioDevices();
+    }
+
     setMicrophoneMute(enable) {
-        enable = (enable === true) ? true : false;
+        enable = enable === true;
         _InCallManager.setMicrophoneMute(enable);
     }
 
     startRingtone(ringtone, vibrate_pattern, ios_category, seconds) {
         ringtone = (typeof ringtone === 'string') ? ringtone : "_DEFAULT_";
-        this.vibrate = (Array.isArray(vibrate_pattern)) ? true : false;
+        this.vibrate = Array.isArray(vibrate_pattern);
         ios_category = (ios_category === 'playback') ? 'playback' : "default";
         seconds = (typeof seconds === 'number' && seconds > 0) ? parseInt(seconds) : -1; // --- android only, default looping
 
@@ -178,9 +182,28 @@ class InCallManager {
         }
     }
 
-    async chooseAudioRoute(route) {
-        let result = await _InCallManager.chooseAudioRoute(route);
-        return result;
+    chooseAudioRoute(route) {
+        return _InCallManager.chooseAudioRoute(route);
+    }
+
+    storeOriginalAudioSetup() {
+        _InCallManager.storeOriginalAudioSetup();
+    }
+
+    resetAudioMode() {
+        _InCallManager.resetAudioMode();
+    }
+
+    requestAudioFocus() {
+        return _InCallManager._requestAudioFocus();
+    }
+
+    startBT() {
+        return _InCallManager.startBT();
+    }
+
+    stopBT() {
+        return _InCallManager.stopBT();
     }
 }
 

@@ -28,14 +28,16 @@ import android.media.AudioManager;
 import android.media.AudioDeviceInfo;
 import android.media.MediaPlayer;
 import android.media.ToneGenerator;
+import android.media.AudioFocusRequest;
+import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.PowerManager;
 import android.os.Build;
 import android.os.Handler;
 import android.provider.Settings;
-import android.support.annotation.Nullable;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.content.ContextCompat;
+import androidx.annotation.Nullable;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import android.util.Log;
 import android.util.SparseArray;
 import android.view.Display;
@@ -247,26 +249,33 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
         });
     }
 
-    private void storeOriginalAudioSetup() {
-        Log.d(TAG, "storeOriginalAudioSetup()");
+    @ReactMethod
+    public void storeOriginalAudioSetup() {
         if (!isOrigAudioSetupStored) {
             origAudioMode = audioManager.getMode();
+            Log.d(TAG, "storeOriginalAudioSetup() " + origAudioMode);
             origIsSpeakerPhoneOn = audioManager.isSpeakerphoneOn();
             origIsMicrophoneMute = audioManager.isMicrophoneMute();
             isOrigAudioSetupStored = true;
         }
+        else {
+            Log.d(TAG, "storeOriginalAudioSetup() already stored");
+        }
     }
 
     private void restoreOriginalAudioSetup() {
-        Log.d(TAG, "restoreOriginalAudioSetup()");
         if (isOrigAudioSetupStored) {
+            Log.d(TAG, "restoreOriginalAudioSetup() " + origAudioMode);
             setSpeakerphoneOn(origIsSpeakerPhoneOn);
             setMicrophoneMute(origIsMicrophoneMute);
-            audioManager.setMode(origAudioMode);
+//             audioManager.setMode(origAudioMode);
             if (getCurrentActivity() != null) {
                 getCurrentActivity().setVolumeControlStream(AudioManager.USE_DEFAULT_STREAM_TYPE);
             }
             isOrigAudioSetupStored = false;
+        }
+        else {
+            Log.d(TAG, "restoreOriginalAudioSetup() NOT stored");
         }
     }
 
@@ -553,7 +562,7 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
     }
 
     @ReactMethod
-    public void start(final String _media, final boolean auto, final String ringbackUriType) {
+    public void start(final String _media, final boolean auto, final String ringbackUriType, Promise promise) {
         media = _media;
         if (media.equals("video")) {
             defaultSpeakerOn = true;
@@ -576,7 +585,8 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
             bluetoothManager.start();
             // TODO: even if not acquired focus, we can still play sounds. but need figure out which is better.
             //getCurrentActivity().setVolumeControlStream(AudioManager.STREAM_VOICE_CALL);
-            audioManager.setMode(defaultAudioMode);
+
+//             audioManager.setMode(defaultAudioMode);
             setSpeakerphoneOn(defaultSpeakerOn);
             setMicrophoneMute(false);
             forceSpeakerOn = 0;
@@ -591,14 +601,19 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
                 startRingback(ringbackUriType);
             }
         }
+
+        promise.resolve("done");
     }
 
     public void stop() {
+        Log.d(TAG, "stop()");
         stop("");
     }
 
     @ReactMethod
     public void stop(final String busytoneUriType) {
+        Log.d(TAG, "stop(tone) " + busytoneUriType);
+
         if (audioManagerActivated) {
             stopRingback();
             if (!busytoneUriType.isEmpty() && startBusytone(busytoneUriType)) {
@@ -606,7 +621,6 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
                 Log.d(TAG, "play busytone before stop InCallManager");
                 return;
             } else {
-                Log.d(TAG, "stop() InCallManager");
                 stopBusytone();
                 stopEvents();
                 setSpeakerphoneOn(false);
@@ -619,6 +633,8 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
             }
             wakeLockUtils.releasePartialWakeLock();
         }
+
+        Log.d(TAG, "stop(tone) executed");
     }
 
     private void startEvents() {
@@ -638,17 +654,49 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
         turnScreenOn();
     }
 
-    private void requestAudioFocus() {
-        if (!isAudioFocused) {
-            int result = audioManager.requestAudioFocus(mOnFocusChangeListener, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN);
+    @ReactMethod
+    public void _requestAudioFocus(Promise promise) {
+        promise.resolve(requestAudioFocus());
+    }
+
+    public String requestAudioFocus() {
+        final Object focusLock = new Object();
+
+        if (isAudioFocused) return "FOCUSED";
+
+        int result = audioManager.requestAudioFocus(
+            new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                //.setAcceptsDelayedFocusGain(true)
+                //.setWillPauseWhenDucked(false)
+                .setOnAudioFocusChangeListener(mOnFocusChangeListener)
+                .build()
+        );
+
+        String res = "UNKNOWN";
+
+        synchronized(focusLock) {
             if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                Log.d(TAG, "AudioFocus granted");
+                Log.d(TAG, "AudioFocus GRANTED");
                 isAudioFocused = true;
+                res = "GRANTED";
             } else if (result == AudioManager.AUDIOFOCUS_REQUEST_FAILED) {
-                Log.d(TAG, "AudioFocus failed");
+                Log.d(TAG, "AudioFocus FAILED");
                 isAudioFocused = false;
+                res = "FAILED";
+            } else if (result == AudioManager.AUDIOFOCUS_REQUEST_DELAYED) {
+                Log.d(TAG, "AudioFocus DELAYED");
+                isAudioFocused = false;
+                res = "DELAYED";
             }
         }
+
+        return res;
     }
 
     private void releaseAudioFocus() {
@@ -796,6 +844,7 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
     @ReactMethod
     public void startRingback(final String ringbackUriType) {
         if (ringbackUriType.isEmpty()) {
+            Log.d(TAG, "startRingback() empty");
             return;
         }
         try {
@@ -922,9 +971,12 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
 
     @ReactMethod
     public void startRingtone(final String ringtoneUriType, final int seconds) {
+        Log.d(TAG, "startRingtone(): UriType=" + ringtoneUriType);
+
         try {
-            Log.d(TAG, "startRingtone(): UriType=" + ringtoneUriType);
             if (mRingtone != null) {
+                Log.d(TAG, "startRingtone(): mRingtone != null");
+
                 if (mRingtone.isPlaying()) {
                     Log.d(TAG, "startRingtone(): is already playing");
                     return;
@@ -948,12 +1000,12 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
             }
 
             if (audioManagerActivated) {
-                stop();
+                //stop();
             }
 
             wakeLockUtils.acquirePartialWakeLock();
 
-            storeOriginalAudioSetup();
+//             storeOriginalAudioSetup();
             Map data = new HashMap<String, Object>();
             mRingtone = new myMediaPlayer();
             data.put("name", "mRingtone");
@@ -990,11 +1042,13 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
 
     @ReactMethod
     public void stopRingtone() {
+        Log.d(TAG, "stopRingtone()");
+
         try {
             if (mRingtone != null) {
                 mRingtone.stopPlay();
                 mRingtone = null;
-                restoreOriginalAudioSetup();
+//                 restoreOriginalAudioSetup();
             }
             if (mRingtoneCountDownHandler != null) {
                 mRingtoneCountDownHandler.removeCallbacksAndMessages(null);
@@ -1034,13 +1088,13 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
             @Override
             public void onPrepared(MediaPlayer mp) {
                 Log.d(TAG, String.format("MediaPlayer %s onPrepared(), start play, isSpeakerPhoneOn %b", name, audioManager.isSpeakerphoneOn()));
-                if (name.equals("mBusytone")) {
-                    audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                } else if (name.equals("mRingback")) {
-                    audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                } else if (name.equals("mRingtone")) {
-                    audioManager.setMode(AudioManager.MODE_RINGTONE);
-                } 
+//                 if (name.equals("mBusytone")) {
+//                     audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+//                 } else if (name.equals("mRingback")) {
+//                     audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+//                 } else if (name.equals("mRingtone")) {
+//                     audioManager.setMode(AudioManager.MODE_RINGTONE);
+//                 }
                 updateAudioRoute();
                 mp.start();
             }
@@ -1306,13 +1360,13 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
                         playing = true;
 
                         // --- make sure audio routing, or it will be wired when switch suddenly
-                        if (caller.equals("mBusytone")) {
-                            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                        } else if (caller.equals("mRingback")) {
-                            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                        } else if (caller.equals("mRingtone")) {
-                            audioManager.setMode(AudioManager.MODE_RINGTONE);
-                        } 
+//                         if (caller.equals("mBusytone")) {
+//                             audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+//                         } else if (caller.equals("mRingback")) {
+//                             audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+//                         } else if (caller.equals("mRingtone")) {
+//                             audioManager.setMode(AudioManager.MODE_RINGTONE);
+//                         }
                         InCallManagerModule.this.updateAudioRoute();
 
                         tg.startTone(toneType);
@@ -1479,6 +1533,20 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
         } else if (audioRoute.equals(AudioDevice.BLUETOOTH.name())) {
             selectAudioDevice(AudioDevice.BLUETOOTH);
         }
+        promise.resolve(getAudioDeviceStatusMap());
+    }
+
+    @ReactMethod
+    public void resetAudioMode() {
+        Log.d(TAG, "resetAudioMode");
+
+        audioManager.setMode(AudioManager.MODE_NORMAL);
+    }
+
+    @ReactMethod
+    public void getAudioDevices(Promise promise) {
+        Log.d(TAG, "getAudioDevices");
+        updateAudioDeviceState();
         promise.resolve(getAudioDeviceStatusMap());
     }
 
@@ -1810,6 +1878,7 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
                 && (bluetoothManager.getState() == AppRTCBluetoothManager.State.SCO_CONNECTED
                     || bluetoothManager.getState() == AppRTCBluetoothManager.State.SCO_CONNECTING)
                 ) {
+            Log.d(TAG, "STOP Bluetooth");
             bluetoothManager.stopScoAudio();
             bluetoothManager.updateDevice();
         }
@@ -1818,8 +1887,10 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
         if (selectedAudioDevice != AudioDevice.BLUETOOTH
                 && newAudioDevice == AudioDevice.BLUETOOTH
                 && bluetoothManager.getState() == AppRTCBluetoothManager.State.HEADSET_AVAILABLE) {
+            Log.d(TAG, "START Bluetooth");
             // Attempt to start Bluetooth SCO audio (takes a few second to start).
             if (!bluetoothManager.startScoAudio()) {
+                Log.d(TAG, "START Bluetooth FAILED");
                 // Remove BLUETOOTH from list of available devices since SCO failed.
                 audioDevices.remove(AudioDevice.BLUETOOTH);
                 audioDeviceSetUpdated = true;
@@ -1827,6 +1898,9 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
                     userSelectedAudioDevice = AudioDevice.NONE;
                 }
                 newAudioDevice = getPreferredAudioDevice();
+            }
+            else {
+                Log.d(TAG, "START Bluetooth SUCCESS");
             }
         }
         
@@ -1852,6 +1926,16 @@ public class InCallManagerModule extends ReactContextBaseJavaModule implements L
             sendEvent("onAudioDeviceChanged", getAudioDeviceStatusMap());
         }
         Log.d(TAG, "--- updateAudioDeviceState done");
+    }
+
+    @ReactMethod
+    public void startBT() {
+        bluetoothManager.start();
+    }
+
+    @ReactMethod
+    public void stopBT() {
+        bluetoothManager.stop();
     }
 
     private WritableMap getAudioDeviceStatusMap() {

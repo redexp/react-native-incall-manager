@@ -585,8 +585,14 @@ RCT_EXPORT_METHOD(getIsWiredHeadsetPluggedIn:(RCTPromiseResolveBlock)resolve
     BOOL isCurrentRouteToSpeaker;
     isCurrentRouteToSpeaker = [self checkAudioRoute:@[AVAudioSessionPortBuiltInSpeaker]
                                                routeType:@"output"];
-    if ((overrideAudioPort == AVAudioSessionPortOverrideSpeaker && !isCurrentRouteToSpeaker)
-            || (overrideAudioPort == AVAudioSessionPortOverrideNone && isCurrentRouteToSpeaker)) {
+
+    NSLog(@"RNInCallManager.updateAudioRoute(): A: %d, B: %d, C: %d, D: %d", overrideAudioPort, AVAudioSessionPortOverrideSpeaker, AVAudioSessionPortOverrideNone, isCurrentRouteToSpeaker);
+
+    if (
+        (_forceSpeakerOn == 1 || _forceSpeakerOn == -1) ||
+        (overrideAudioPort == AVAudioSessionPortOverrideSpeaker && !isCurrentRouteToSpeaker) ||
+        (overrideAudioPort == AVAudioSessionPortOverrideNone && isCurrentRouteToSpeaker)
+    ) {
         @try {
             [_audioSession overrideOutputAudioPort:overrideAudioPort error:nil];
             NSLog(@"RNInCallManager.updateAudioRoute(): audioSession.overrideOutputAudioPort(%@) success", overrideAudioPortString);
